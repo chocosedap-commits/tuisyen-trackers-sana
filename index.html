@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tuisyen Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#1b1f2a;--mu:#6b7385;--pr:#2f6f6a;--ok:#2b9348;--bad:#d62839;--bd:#e3e6ee;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14161c;--card:#1e222b;--tx:#eceff5;--mu:#98a1b5;--pr:#3a9d93;--ok:#5fd07f;--bad:#ff6b78;--bd:#2d3340;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14161c;--card:#1e222b;--tx:#eceff5;--mu:#98a1b5;--pr:#3a9d93;--ok:#5fd07f;--bad:#ff6b78;--bd:#2d3340;color-scheme:dark}
+*{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:70px}
+h1{font-size:18px;margin:0;padding:14px 16px}
+main{padding:12px;max-width:640px;margin:auto}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px}
+input,select{width:100%;padding:10px;margin:4px 0;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit}
+button{padding:9px 12px;border:0;border-radius:8px;background:var(--pr);color:#fff;font:inherit;cursor:pointer}
+button.g{background:var(--bd);color:var(--tx)}
+button.ok{background:var(--ok)}button.bad{background:var(--bad)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)}
+.row:last-child{border:0}
+.mu{color:var(--mu);font-size:13px}
+.stat{display:flex;gap:8px}.stat>div{flex:1;text-align:center}.stat b{display:block;font-size:20px}
+nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;overflow-x:auto;background:var(--card);border-bottom:1px solid var(--bd)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--card)}
+nav button{flex:1;min-width:56px;background:none;color:var(--mu);border-radius:0;padding:8px 2px;font-size:11px;line-height:1.3;border-bottom:3px solid transparent}
+nav button.on{color:var(--pr);font-weight:700;border-bottom-color:var(--pr)}
+textarea{width:100%;height:90px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;font-size:12px}
+a{color:var(--pr)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid .card{margin:0}.grid b{display:block;font-size:24px;margin-top:4px}
+.ck{width:26px;height:26px;border-radius:50%;border:2px solid var(--bd);flex:none}.ck.d{background:var(--ok);border-color:var(--ok)}
+</style>
+</head>
+<body>
+<h1>📚 Tuisyen Tracker <span id="sy" class="mu" style="font-size:12px;font-weight:400"></span></h1>
+<main id="app"></main>
+<nav id="nav"></nav>
+<script>
+var KEY='tt1',S=load()||{students:[],att:{},pay:{}};S.sched=S.sched||[];S.tests=S.tests||[];S.pd=S.pd||{};S.biz=S.biz||'';
+var tab='home',date=new Date().toISOString().slice(0,10),ym=date.slice(0,7),del=null,bk='',rc=null,ti=null,ed=null;
+function load(){try{return JSON.parse(localStorage.getItem(KEY))}catch(e){return null}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}sync();gAuto()}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function rm(n){return 'RM'+(+n).toFixed(2)}
+function $(id){return document.getElementById(id)}
+function addStu(){
+  var n=$('n').value.trim();if(!n)return;
+  var o={name:n,cls:$('c').value.trim(),fee:+$('f').value||0,ph:$('p').value.trim(),start:$('sm').value||date.slice(0,7)},E=S.students.filter(function(s){return s.id===ed})[0];
+  if(E){Object.assign(E,o);ed=null}else S.students.push(Object.assign({id:Date.now()+''},o));
+  save();render();
+}
+function delStu(id){
+  if(del!==id){del=id;render();return}
+  S.students=S.students.filter(function(s){return s.id!==id});del=null;save();render();
+}
+function togAtt(id){
+  var d=S.att[date]=S.att[date]||{};d[id]=!d[id];save();render();
+}
+function togPay(id){
+  var d=S.pay[ym]=S.pay[ym]||{};d[id]=!d[id];if(d[id])S.pd[ym+id]=new Date().toISOString().slice(0,10);else{delete S.pd[ym+id];if(rc&&rc.id===id)rc=null}save();render();
+}
+function wa(s){
+  var p=s.ph.replace(/\D/g,'');if(!p)return '';
+  if(p[0]==='0')p='6'+p;
+  var t=encodeURIComponent('*Peringatan Yuran*\n\nSalam sejahtera ibu bapa/penjaga '+s.name+'.\n\nIni ialah peringatan yang dijana oleh sistem rekod yuran '+(S.biz||'kami')+'. Mengikut rekod, yuran tuisyen '+s.name+' bagi bulan '+mlist(s)+' sebanyak '+rm(Math.max(1,arr(s).length)*s.fee)+' belum direkodkan dalam sistem.\n\nJika bayaran sudah dibuat, mohon abaikan mesej ini. Terima kasih atas kerjasama dan sokongan tuan/puan \ud83d\ude4f\n\n'+(S.bank?'Pembayaran: '+S.bank+'\n\n':'')+'_Mesej ini dijana oleh sistem rekod yuran._');
+  return ' <a href="https://wa.me/'+p+'?text='+t+'" target="_blank" rel="noopener">WhatsApp</a>';
+}
+function vStu(){
+  var E=S.students.filter(function(s){return s.id===ed})[0];
+  var h='<div class="card"><b>'+(E?'Edit pelajar':'Tambah pelajar')+'</b><input id="n" placeholder="Nama" value="'+(E?esc(E.name):'')+'"><input id="c" placeholder="Kelas / subjek" value="'+(E?esc(E.cls):'')+'"><input id="f" type="number" inputmode="decimal" placeholder="Yuran bulanan (RM)" value="'+(E?E.fee:'')+'"><input id="p" type="tel" placeholder="No. telefon penjaga (cth 0123456789)" value="'+(E?esc(E.ph):'')+'"><div class="mu" style="margin-top:4px">Mula bulan belajar</div><input id="sm" type="month" value="'+(E?(E.start||''):date.slice(0,7))+'"><button onclick="addStu()">'+(E?'Simpan':'+ Tambah')+'</button>'+(E?' <button class="g" onclick="ed=null;render()">Batal</button>':'')+'</div>';
+  h+='<div class="card"><b>Senarai ('+S.students.length+')</b>';
+  if(!S.students.length)h+='<p class="mu">Belum ada pelajar.</p>';
+  S.students.forEach(function(s){
+    h+='<div class="row"><div>'+esc(s.name)+'<div class="mu">'+esc(s.cls)+' · '+rm(s.fee)+'</div></div><div style="display:flex;gap:6px"><button class="g" onclick="ed=\''+s.id+'\';render();scrollTo(0,0)">Edit</button><button class="'+(del===s.id?'bad':'g')+'" onclick="delStu(\''+s.id+'\')">'+(del===s.id?'Pasti?':'Buang')+'</button></div></div>';
+  });
+  return h+'</div>'+vBulk()+vImp();
+}
+function vAtt(){
+  var d=S.att[date]||{},n=S.students.filter(function(s){return d[s.id]}).length;
+  var h='<div class="card"><input type="date" value="'+date+'" onchange="date=this.value;render()"><p class="mu">Hadir: '+n+' / '+S.students.length+'</p>';
+  if(!S.students.length)h+='<p class="mu">Tambah pelajar dulu.</p>';
+  S.students.forEach(function(s){
+    h+='<div class="row"><div>'+esc(s.name)+'<div class="mu">'+esc(s.cls)+'</div></div><button class="'+(d[s.id]?'ok':'g')+'" onclick="togAtt(\''+s.id+'\')">'+(d[s.id]?'✓ Hadir':'Tak hadir')+'</button></div>';
+  });
+  return h+'</div>';
+}
+function vFeeOld(){
+  var d=S.pay[ym]||{},got=0,out=0;
+  S.students.forEach(function(s){if(d[s.id])got+=s.fee;else out+=s.fee});
+  var h='<div class="card"><input type="month" value="'+ym+'" onchange="ym=this.value;render()"><div class="stat"><div class="mu">Dikutip<b style="color:var(--ok)">'+rm(got)+'</b></div><div class="mu">Tertunggak<b style="color:var(--bad)">'+rm(out)+'</b></div></div></div><div class="card">';
+  if(!S.students.length)h+='<p class="mu">Tambah pelajar dulu.</p>';
+  S.students.forEach(function(s){
+    h+='<div class="row"><div>'+esc(s.name)+'<div class="mu">'+rm(s.fee)+(d[s.id]?' · <span style="color:var(--pr);text-decoration:underline" onclick="showRc(\''+s.id+'\')">Resit</span>':wa(s))+'</div></div><button class="'+(d[s.id]?'ok':'bad')+'" onclick="togPay(\''+s.id+'\')">'+(d[s.id]?'✓ Dah bayar':'Belum bayar')+'</button></div>';
+  });
+  return h+'</div>'+rcCard();
+}
+function vSum(){
+  var days=Object.keys(S.att).filter(function(k){return k.slice(0,7)===ym&&Object.keys(S.att[k]).some(function(i){return S.att[k][i]})});
+  var d=S.pay[ym]||{};
+  var h='<div class="card"><input type="month" value="'+ym+'" onchange="ym=this.value;render()"><p class="mu">Hari kelas direkod: '+days.length+'</p>';
+  S.students.forEach(function(s){
+    var c=days.filter(function(k){return S.att[k][s.id]}).length;
+    h+='<div class="row"><div>'+esc(s.name)+'<div class="mu">Hadir '+c+'/'+days.length+' hari</div></div><span class="mu" style="color:var(--'+(d[s.id]?'ok':'bad')+')">'+(d[s.id]?'Dah bayar':'Belum bayar')+'</span></div>';
+  });
+  return h+'</div>'+vTest();}
+function vSet(){var h=vGs()+vQr();h+='<div class="card"><b>Nama pusat tuisyen (untuk resit)</b><input value="'+esc(S.biz)+'" onchange="S.biz=this.value;save()"></div><div class="card"><b>Sandaran data</b><p class="mu">Data disimpan dalam browser peranti ini sahaja. Salin teks ini sebagai backup, tampal untuk pulihkan.</p><textarea id="bk">'+esc(bk)+'</textarea><div style="display:flex;gap:8px;margin-top:6px"><button class="g" onclick="bk=JSON.stringify(S);render()">Eksport</button><button onclick="imp()">Import</button></div></div>';
+  return h;
+}
+var DAYS=['Isnin','Selasa','Rabu','Khamis','Jumaat','Sabtu','Ahad'];
+function addSch(){var t=$('st').value,c=$('sc').value.trim();if(!c||!t)return;S.sched.push({id:Date.now()+'',day:+$('sd').value,time:t,cls:c});save();render()}
+function delSch(id){S.sched=S.sched.filter(function(x){return x.id!==id});save();render()}
+function vSch(){
+  var h='<div class="card"><b>Tambah kelas</b><select id="sd">'+DAYS.map(function(d,i){return '<option value="'+i+'">'+d+'</option>'}).join('')+'</select><input id="st" type="time"><input id="sc" placeholder="Kelas / subjek (cth Math Tingkatan 3)"><button onclick="addSch()">+ Tambah</button></div>';
+  var l=S.sched.slice().sort(function(a,b){return a.day-b.day||a.time.localeCompare(b.time)});
+  h+='<div class="card"><b>Jadual mingguan</b>';
+  if(!l.length)h+='<p class="mu">Belum ada kelas.</p>';
+  l.forEach(function(x){h+='<div class="row"><div>'+DAYS[x.day]+' · '+x.time+'<div class="mu">'+esc(x.cls)+'</div></div><button class="g" onclick="delSch(\''+x.id+'\')">Buang</button></div>'});
+  return h+'</div>';
+}
+function addTest(){var n=$('tn').value.trim();if(!n)return;var t={id:Date.now()+'',name:n,date:$('td').value,max:+$('tm').value||100,m:{}};S.tests.push(t);ti=t.id;save();render()}
+function delTest(id){if(del!==id){del=id;render();return}S.tests=S.tests.filter(function(x){return x.id!==id});del=null;ti=null;save();render()}
+function setMark(tid,sid,v){var t=S.tests.filter(function(x){return x.id===tid})[0];if(v==='')delete t.m[sid];else t.m[sid]=+v;save()}
+function vTest(){
+  var h='<div class="card"><b>Tambah ujian</b><input id="tn" placeholder="Nama ujian (cth Ujian Bulan 11)"><input id="td" type="date" value="'+date+'"><input id="tm" type="number" inputmode="decimal" placeholder="Markah penuh (default 100)"><button onclick="addTest()">+ Tambah</button></div>';
+  if(!S.tests.length)return h;
+  var t=S.tests.filter(function(x){return x.id===ti})[0]||S.tests[S.tests.length-1];ti=t.id;
+  h+='<div class="card"><select onchange="ti=this.value;del=null;render()">'+S.tests.map(function(x){return '<option value="'+x.id+'"'+(x.id===ti?' selected':'')+'>'+esc(x.name)+' ('+x.date+')</option>'}).join('')+'</select>';
+  var v=Object.keys(t.m).map(function(k){return t.m[k]});
+  var avg=v.length?v.reduce(function(a,b){return a+b},0)/v.length:0;
+  h+='<p class="mu">Penuh: '+t.max+' · Purata: '+(v.length?avg.toFixed(1):'-')+' ('+v.length+' dinilai)</p>';
+  S.students.forEach(function(s){var x=t.m[s.id];h+='<div class="row"><div>'+esc(s.name)+'</div><input style="width:90px" type="number" inputmode="decimal" value="'+(x===undefined?'':x)+'" placeholder="/'+t.max+'" onchange="setMark(\''+t.id+'\',\''+s.id+'\',this.value)"></div>'});
+  return h+'<button class="'+(del===t.id?'bad':'g')+'" style="margin-top:8px" onclick="delTest(\''+t.id+'\')">'+(del===t.id?'Pasti buang?':'Buang ujian')+'</button></div>';
+}
+var DB=null,last={},isOwn=false,ro=false,pend=0,err=false;
+function setSy(){var e=$('sy');if(e)e.textContent=!DB?'\ud83d\udcf1 simpan di telefon':ro?'\ud83d\udd12 baca sahaja':err?'\u26a0 gagal simpan':'\u2601 dikongsi'}
+function pack(){
+  var o={meta:{students:S.students,sched:S.sched,biz:S.biz},tests:{tests:S.tests}};
+  Object.keys(S.att).forEach(function(k){var m='att-'+k.slice(0,7);o[m]=o[m]||{d:{}};o[m].d[k]=S.att[k]});
+  Object.keys(S.pay).forEach(function(m){o['pay-'+m]=o['pay-'+m]||{p:{},pd:{}};o['pay-'+m].p=S.pay[m]});
+  Object.keys(S.pd).forEach(function(k){var m='pay-'+k.slice(0,7);o[m]=o[m]||{p:{},pd:{}};o[m].pd[k.slice(7)]=S.pd[k]});
+  return o;
+}
+function sync(force){
+  if(!DB||ro)return;
+  var o=pack();
+  Object.keys(o).forEach(function(id){
+    var j=JSON.stringify(o[id]);
+    if(!force&&last[id]===j)return;
+    last[id]=j;
+    pend++;DB.collection('d').doc(id).set(JSON.parse(j)).then(function(){pend--;if(!pend){err=false;setSy()}}).catch(function(e){pend--;delete last[id];if(e&&/permission|denied/i.test(e.code+' '+e.message))ro=true;else err=true;setSy()});
+  });
+}
+function fromDocs(snap){
+  var N={students:[],att:{},pay:{},sched:[],tests:[],pd:{},biz:''};
+  snap.docs.forEach(function(d){
+    var id=d.id,x=d.data()||{};last[id]=JSON.stringify(x);
+    if(id==='meta'){N.students=x.students||[];N.sched=x.sched||[];N.biz=x.biz||''}
+    else if(id==='tests')N.tests=x.tests||[];
+    else if(id.indexOf('att-')===0){Object.keys(x.d||{}).forEach(function(k){N.att[k]=x.d[k]})}
+    else if(id.indexOf('pay-')===0){var m=id.slice(4);N.pay[m]=x.p||{};Object.keys(x.pd||{}).forEach(function(i){N.pd[m+i]=x.pd[i]})}
+  });
+  return N;
+}
+(async function(){
+  try{
+    return;
+    var u=await claude.use('user');isOwn=!!(u&&u.isOwner());
+    DB=d;var first=true;
+    d.collection('d').onSnapshot(function(snap){
+      if(snap.empty){
+        if(snap.metadata&&snap.metadata.fromCache)return;
+        if(first&&isOwn&&S.students.length)sync(true);
+        first=false;setSy();return;
+      }
+      first=false;if(pend>0)return;S=fromDocs(snap);
+      if(!(document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)))render();
+      setSy();
+    },function(){DB=null;setSy()});
+    setSy();
+  }catch(e){}
+})();
+function dl(b,n){var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;document.body.appendChild(a);a.click();a.remove()}
+var lastRc=null;
+function vImp(){
+  return '<div class="card"><b>Import dari Excel</b><p class="mu">Susunan lajur: Nama, Kelas, Yuran, No. telefon. Salin dari Excel dan tampal di bawah, atau pilih fail .xlsx / .csv. Nama yang sama akan dilangkau.</p><textarea id="im" placeholder="Tampal di sini"></textarea><button style="margin:6px 0" onclick="impTxt()">Import tampalan</button><input id="imf" type="file" accept=".xlsx,.xls,.csv" onchange="impFile(this.files[0])"><div id="imm" class="mu"></div></div>';
+}
+function addRows(rows){
+  var c=0;
+  rows.forEach(function(r){
+    var n=String(r[0]||'').trim();if(!n||/^nama$/i.test(n))return;
+    if(S.students.some(function(s){return s.name.toLowerCase()===n.toLowerCase()}))return;
+    var ph=String(r[3]||'').replace(/[^\d+]/g,'');if(/^1\d{8,9}$/.test(ph))ph='0'+ph;
+    S.students.push({id:Date.now()+'-'+c,name:n,cls:String(r[1]||'').trim(),fee:parseFloat(String(r[2]||'').replace(/[^\d.]/g,''))||0,ph:ph,start:date.slice(0,7)});c++;
+  });
+  save();render();var m=$('imm');if(m)m.textContent=c+' pelajar ditambah.';
+}
+function impTxt(){
+  var t=$('im').value;
+  addRows(t.split(/\r?\n/).filter(Boolean).map(function(l){return l.indexOf('\t')>=0?l.split('\t'):l.split(',')}));
+}
+function impFile(f){
+  if(!f)return;var m=$('imm'),r=new FileReader();
+  r.onload=function(){
+    try{
+      var wb=XLSX.read(r.result,{type:'array'});
+      addRows(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false}));
+    }catch(e){m.textContent='Gagal baca fail. Cuba tampal terus dari Excel.'}
+  };
+  r.readAsArrayBuffer(f);
+}
+var bulk=0,bcv='Mengaji',bfv='20';
+function vBulk(){
+  if(!S.students.length)return '';
+  return '<div class="card"><b>Tetapkan untuk semua pelajar</b><p class="mu">Kelas dan yuran akan ditukar untuk semua '+S.students.length+' pelajar sekali gus.</p><input id="bc" value="'+esc(bcv)+'" placeholder="Kelas / subjek"><input id="bf" type="number" inputmode="decimal" value="'+esc(bfv)+'" placeholder="Yuran bulanan (RM)"><button class="'+(bulk?'bad':'')+'" style="margin-top:6px" onclick="doBulk()">'+(bulk?'Pasti? Tekan sekali lagi':'Guna untuk semua')+'</button>'+(bulk?' <button class="g" style="margin-top:6px" onclick="bulk=0;render()">Batal</button>':'')+'</div>';
+}
+function doBulk(){
+  bcv=$('bc').value;bfv=$('bf').value;
+  if(!bulk){bulk=1;render();return}
+  S.students.forEach(function(s){s.cls=bcv.trim();s.fee=+bfv||0});
+  bulk=0;save();render();
+}
+function vFee(){
+  var d=S.pay[ym]||{},got=0,out=0,P=[],U=[];
+  S.students.forEach(function(s){if(d[s.id]){got+=s.fee;P.push(s)}else{out+=s.fee;U.push(s)}});
+  var h='<div class="card"><input type="month" value="'+ym+'" onchange="ym=this.value;render()"><div class="stat"><div class="mu">Dikutip<b style="color:var(--ok)">'+rm(got)+'</b></div><div class="mu">Tertunggak<b style="color:var(--bad)">'+rm(out)+'</b></div></div></div>';
+  if(!S.students.length)return h+'<div class="card"><p class="mu">Tambah pelajar dulu.</p></div>';
+  function col(t,l,c,u){
+    return '<div class="card" style="padding:8px"><b style="color:var(--'+c+')">'+t+' ('+l.length+')</b>'+(l.length?'':'<p class="mu">Tiada</p>')+l.map(function(s){
+      return '<div class="row" style="display:block"><div style="font-size:14px">'+esc(s.name)+'</div><div class="mu" style="font-size:12px">'+(u?bdg(s):rm(s.fee))+(u?wa(s):' <span style="color:var(--pr);text-decoration:underline" onclick="showRc(\''+s.id+'\')">Resit</span>')+'</div><button class="'+(u?'bad':'ok')+'" style="padding:5px 8px;font-size:12px;margin-top:4px" onclick="togPay(\''+s.id+'\')">'+(u?'Tanda bayar':'Batal bayar')+'</button></div>';
+    }).join('')+'</div>';
+  }
+  return h+rcCard()+'<div class="grid" style="align-items:start">'+col('Dah Bayar',P,'ok',0)+col('Belum Bayar',U.sort(function(a,b){return arr(b).length-arr(a).length}),'bad',1)+'</div>';
+}
+var GS=(function(){try{return JSON.parse(localStorage.getItem('ttg'))||{}}catch(e){return {}}})(),gT=null,gm='',gpull=0;
+function gcall(a,x){return fetch(GS.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({key:GS.key,action:a},x||{}))}).then(function(r){return r.json()})}
+function gShow(){var e=$('gm');if(e)e.textContent=gm}
+function gSave(){
+  if(!GS||!GS.url){gm='Tampal link Google dahulu.';gShow();return Promise.resolve()}
+  var rows=[['Nama','Kelas','Yuran (RM)','Telefon','Mula bulan']].concat(S.students.map(function(s){return [s.name,s.cls,s.fee,s.ph,s.start||'']}));
+  return gcall('save',{data:JSON.stringify(S),rows:rows}).then(function(r){gm=r.ok?'Disimpan ke Google Sheet \u2713 '+new Date().toLocaleTimeString():'Gagal: '+(r.err||'ralat');gShow()}).catch(function(){gm='Gagal hubungi Google Sheet. Semak link dan internet.';gShow()});
+}
+function gAuto(){if(!GS||!GS.url)return;clearTimeout(gT);gT=setTimeout(gSave,3000)}
+function gSetCfg(){GS={url:$('gu').value.trim(),key:$('gk').value.trim()};try{localStorage.setItem('ttg',JSON.stringify(GS))}catch(e){}gm='Tetapan disimpan.';render()}
+function gPull(){
+  if(!GS||!GS.url){gm='Tampal link Google dahulu.';gShow();return}
+  if(!gpull){gpull=1;render();return}
+  gcall('load').then(function(r){
+    var o=r.ok&&r.data?JSON.parse(r.data):null;
+    if(o&&o.students){S=o;S.sched=S.sched||[];S.tests=S.tests||[];S.pd=S.pd||{};S.biz=S.biz||'';try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}gm='Data ditarik dari Google Sheet \u2713'}else gm='Tiada data dalam Sheet atau kod salah.';
+    gpull=0;render();
+  }).catch(function(){gm='Gagal hubungi Google Sheet.';gpull=0;render()});
+}
+function vGs(){
+  return '<div class="card"><b>Sambung Google Sheet</b><p class="mu">Simpan data ke Google Sheet kau dan tarik balik di telefon lain. Berfungsi pada versi yang dimuat naik ke Netlify.</p><input id="gu" placeholder="Link Web app Google (https://script.google.com/...)" value="'+esc(GS.url||'')+'"><input id="gk" placeholder="Kod rahsia" value="'+esc(GS.key||'')+'"><button onclick="gSetCfg()">Simpan tetapan</button><div style="display:flex;gap:8px;margin-top:8px"><button class="g" onclick="gSave()">Simpan ke Sheet</button><button class="'+(gpull?'bad':'g')+'" onclick="gPull()">'+(gpull?'Pasti? Data telefon akan diganti':'Tarik dari Sheet')+'</button></div><div id="gm" class="mu" style="margin-top:6px">'+esc(gm)+'</div></div>';
+}
+function vQr(){
+  return '<div class="card"><b>QR bayaran &amp; maklumat bank</b><p class="mu">Dipaparkan pada resit PDF. Pilih gambar QR (DuitNow atau bank).</p>'+(S.qr?'<img src="'+S.qr+'" style="width:120px;display:block;margin:6px 0">':'')+'<input type="file" accept="image/*" onchange="qrUp(this.files[0])"><input value="'+esc(S.bank||'')+'" placeholder="Cth: Maybank 1234567890 - Nama Akaun" onchange="S.bank=this.value;save()">'+(S.qr?'<button class="g" style="margin-top:6px" onclick="S.qr=\'\';save();render()">Buang QR</button>':'')+'<div id="qm" class="mu"></div></div>';
+}
+function qrUp(f){
+  if(!f)return;var m=$('qm'),r=new FileReader();
+  r.onload=function(){var im=new Image();
+    im.onload=function(){
+      var k=Math.min(1,500/Math.max(im.width,im.height)),c=document.createElement('canvas');
+      c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
+      var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);
+      S.qr=c.toDataURL('image/png');save();render();
+    };
+    im.onerror=function(){if(m)m.textContent='Gambar tak boleh dibaca.'};
+    im.src=r.result;
+  };
+  r.readAsDataURL(f);
+}
+var MNs=['Januari','Februari','Mac','April','Mei','Jun','Julai','Ogos','September','Oktober','November','Disember'];
+function mlab(m){return MNs[+m.slice(5)-1]+' '+m.slice(0,4)}
+function mAdd(m,n){var k=+m.slice(5)-1+n;return (+m.slice(0,4)+Math.floor(k/12))+'-'+('0'+(k%12+1)).slice(-2)}
+function arr(s){var r=[],m=s.start||ym;for(var i=0;i<60&&m<=ym;i++){if(!(S.pay[m]||{})[s.id])r.push(m);m=mAdd(m,1)}return r}
+function mlist(s){var a=arr(s).map(mlab);if(!a.length)a=[mlab(ym)];return a.length>1?a.slice(0,-1).join(', ')+' dan '+a[a.length-1]:a[0]}
+function bdg(s){var k=arr(s).length;if(k<1)return rm(s.fee);var c=k>=3?'var(--bad)':k==2?'#e8590c':'#f5c542',t=k==1?'#3d2f00':'#fff';return '<span style="background:'+c+';color:'+t+';border-radius:10px;padding:1px 8px;font-size:11px">Tertunggak '+k+' bulan</span> '+rm(k*s.fee)}
+S.students.forEach(function(s){if(!s.start)s.start=date.slice(0,7)});save();
+function go(t){tab=t;del=null;render()}
+function vHome(){
+  var h='',n=S.students.length,d1=!!S.biz,d2=n>0;
+  if(!(d1&&d2)){
+    h+='<div class="card" style="border:2px solid var(--pr)"><b>Selamat datang</b><p class="mu" style="margin:2px 0 12px">Dua langkah ringkas dan anda sudah bersedia.</p><div style="display:flex;gap:10px;margin-bottom:14px"><span class="ck'+(d1?' d':'')+'"></span><div><b>Maklumat pusat tuisyen</b><div class="mu">Dipaparkan pada setiap resit.</div><button style="margin-top:6px" onclick="go(\'set\')">Buka Tetapan</button></div></div><div style="display:flex;gap:10px"><span class="ck'+(d2?' d':'')+'"></span><div><b>Tambah pelajar pertama</b><div class="mu">Nama, kelas dan yuran bulanan.</div><button class="g" style="margin-top:6px" onclick="go(\'stu\')">Tambah pelajar</button></div></div></div>';
+  }
+  var days=Object.keys(S.att).filter(function(k){return k.slice(0,7)===ym&&Object.keys(S.att[k]).some(function(i){return S.att[k][i]})});
+  var p=S.pay[ym]||{},exp=0,got=0,pres=0;
+  S.students.forEach(function(s){exp+=s.fee;if(p[s.id])got+=s.fee;days.forEach(function(k){if(S.att[k][s.id])pres++})});
+  var att=n&&days.length?Math.round(pres/(n*days.length)*100)+'%':'\u2014';
+  var pct=exp?Math.round(got/exp*100):0,np=S.students.filter(function(s){return !p[s.id]}).length;
+  var mn=['Januari','Februari','Mac','April','Mei','Jun','Julai','Ogos','September','Oktober','November','Disember'][+ym.slice(5)-1]+' '+ym.slice(0,4);
+  var F=[['Jangkaan Kutipan',rm(exp),n+' pelajar',''],['Bayaran Diterima',rm(got),(n-np)+' pelajar telah bayar','ok'],['Belum Dijelaskan',rm(exp-got),np+' pelajar belum bayar',np?'bad':''],['Peratus Kutipan',pct+'%','daripada jangkaan bulan ini','']];
+  var late=S.students.filter(function(s){return arr(s).length>1}),lt=0;late.forEach(function(s){lt+=arr(s).length*s.fee});
+  var S3=[['Pelajar aktif',n],['Sesi',days.length],['Kehadiran',att]];
+  return h+'<input type="month" value="'+ym+'" onchange="ym=this.value;render()">'
+   +'<div class="card" style="margin:8px 0 10px"><b>Kutipan '+mn+'</b><div style="height:10px;border-radius:5px;background:var(--bd);margin:10px 0 6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:var(--ok)"></div></div><div class="mu">'+rm(got)+' daripada '+rm(exp)+' telah diterima</div></div>'
+   +(late.length?'<div class="card" style="border:2px solid var(--bad);margin:0 0 10px"><b style="color:var(--bad)">\u26a0 Tunggakan lebih 1 bulan: '+late.length+' pelajar</b><div class="mu">Jumlah belum dikutip: '+rm(lt)+'</div><button class="g" style="margin-top:6px" onclick="go(\'fee\')">Lihat senarai</button></div>':'')+'<div class="grid">'+F.map(function(c){return '<div class="card"><span class="mu">'+c[0]+'</span><b'+(c[3]?' style="color:var(--'+c[3]+')"':'')+'>'+c[1]+'</b><div class="mu" style="font-size:12px">'+c[2]+'</div></div>'}).join('')+'</div>'
+   +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px">'+S3.map(function(c){return '<div class="card" style="margin:0"><span class="mu">'+c[0]+'</span><b style="display:block;font-size:20px;margin-top:2px">'+c[1]+'</b></div>'}).join('')+'</div>';
+}
+var NAV={home:['🏠 Utama',vHome],stu:['👥 Pelajar',vStu],kel:['📅 Kelas',function(){return vAtt()+vSch()}],fee:['💰 Yuran',vFee],sum:['📄 Laporan',vSum],set:['⚙️ Tetapan',vSet]};
+async function rcPdf(sh){
+  var m=$('rcm');
+  try{
+    var d=window.claude?await claude.use('downloads'):null;
+    
+    var J=window.jspdf&&window.jspdf.jsPDF;
+    if(!J){m.textContent='Pustaka PDF tak berjaya dimuat. Cuba lagi.';return}
+    var M=['Januari','Februari','Mac','April','Mei','Jun','Julai','Ogos','September','Oktober','November','Disember'];
+    var y=lastRc.ym.split('-'),mn=M[+y[1]-1]+' '+y[0],W=148;
+    var dt=lastRc.dt?lastRc.dt.split('-').reverse().join('/'):'-',amt='RM '+(+lastRc.fee).toFixed(2);
+    var doc=new J({unit:'mm',format:'a5'});
+    doc.setFillColor(47,111,106);doc.rect(0,0,W,38,'F');
+    doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(18);doc.text(lastRc.biz.slice(0,30),14,18);
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.text('RESIT BAYARAN YURAN',14,28);doc.text('No. '+lastRc.no,W-14,28,{align:'right'});
+    doc.setTextColor(120,128,140);doc.setFontSize(8);doc.text('DITERIMA DARIPADA',14,52);
+    doc.setTextColor(27,31,42);doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text(lastRc.n.slice(0,34),14,60);
+    doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(107,115,133);
+    if(lastRc.c)doc.text('Kelas: '+lastRc.c.slice(0,40),14,67);
+    doc.setFillColor(232,242,241);doc.rect(14,78,W-28,9,'F');
+    doc.setTextColor(47,111,106);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('PERIHAL',18,84);doc.text('JUMLAH',W-18,84,{align:'right'});
+    doc.setTextColor(27,31,42);doc.setFont('helvetica','normal');doc.setFontSize(11);
+    doc.text('Yuran tuisyen - '+mn,18,97);doc.text(amt,W-18,97,{align:'right'});
+    doc.setDrawColor(227,230,238);doc.line(14,103,W-14,103);
+    doc.setFillColor(47,111,106);doc.roundedRect(14,112,W-28,22,3,3,'F');
+    doc.setTextColor(255,255,255);doc.setFontSize(10);doc.text('JUMLAH DIBAYAR',20,125);
+    doc.setFont('helvetica','bold');doc.setFontSize(18);doc.text(amt,W-20,126,{align:'right'});
+    doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(107,115,133);
+    doc.text('Tarikh bayar',14,150);doc.text('Status',14,161);
+    doc.setTextColor(27,31,42);doc.text(dt,W-14,150,{align:'right'});
+    doc.setFillColor(43,147,72);doc.roundedRect(W-36,156,22,7,3.5,3.5,'F');
+    doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(8);doc.text('LUNAS',W-25,160.8,{align:'center'});
+    var fy=(lastRc.qr||lastRc.bank)?8:0;
+    if(lastRc.qr){try{doc.addImage(lastRc.qr,'PNG',14,166,24,24)}catch(e){}}
+    if(lastRc.qr||lastRc.bank){var bx=lastRc.qr?44:14;doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(107,115,133);doc.text('Bayaran seterusnya:',bx,172);doc.setTextColor(27,31,42);doc.setFontSize(9);doc.text(doc.splitTextToSize(lastRc.bank||'Imbas kod QR untuk membayar',W-14-bx).slice(0,4),bx,178)}
+    doc.setDrawColor(227,230,238);doc.line(14,184+fy,W-14,184+fy);
+    doc.setTextColor(27,31,42);doc.setFontSize(10);doc.text('Terima kasih atas kepercayaan anda.',W/2,193+fy,{align:'center'});
+    doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(150,156,168);
+    doc.text('Resit ini dijana secara komputer dan tidak memerlukan tandatangan.',W/2,199+fy,{align:'center'});
+    var fn='Resit-'+lastRc.no+'-'+lastRc.n.replace(/[^\w]+/g,'_')+'.pdf',bl=doc.output('blob');
+    if(sh){
+      var f=new File([bl],fn,{type:'application/pdf'});
+      if(navigator.canShare&&navigator.canShare({files:[f]})){
+        try{await navigator.share({files:[f],title:fn,text:'Resit yuran '+lastRc.n});return}catch(e){if(e&&e.name==='AbortError')return}
+      }
+      if(d){await d.save({filename:fn,data:bl});m.textContent='PDF disimpan. Buka WhatsApp penjaga dan lampirkan fail tu.'}
+      else{dl(bl,fn);m.textContent='PDF dimuat turun. Lampirkan fail tu dalam WhatsApp penjaga.'}
+      return;
+    }
+    if(d)await d.save({filename:fn,data:bl});else dl(bl,fn);
+  }catch(e){if(!e||e.code!=='declined')m.textContent='Gagal muat turun PDF.'}
+}
+function showRc(id){rc={id:id};render();scrollTo(0,0)}
+function rcCard(){
+  if(!rc)return '';
+  var s=S.students.filter(function(x){return x.id===rc.id})[0];
+  if(!s||!(S.pay[ym]||{})[s.id])return '';
+  var no='R'+ym.replace('-','')+'-'+String(S.students.indexOf(s)+1).padStart(3,'0');
+  var t=(S.biz||'Tuisyen')+'\nRESIT BAYARAN\nNo: '+no+'\nPelajar: '+s.name+(s.cls?' ('+s.cls+')':'')+'\nBulan: '+ym+'\nJumlah: '+rm(s.fee)+'\nTarikh bayar: '+(S.pd[ym+s.id]||'-')+'\nTerima kasih.';
+  var p=s.ph.replace(/\D/g,'');if(p&&p[0]==='0')p='6'+p;
+  lastRc={no:no,t:t,n:s.name,c:s.cls,ym:ym,fee:s.fee,dt:S.pd[ym+s.id]||'',biz:S.biz||'Tuisyen',qr:S.qr||'',bank:S.bank||''};
+  return '<div class="card"><b>Resit</b> <span style="float:right;color:var(--mu)" onclick="rc=null;render()">Tutup</span><pre style="white-space:pre-wrap;font:inherit;margin:8px 0">'+esc(t)+'</pre>'+(S.qr?'<img src="'+S.qr+'" style="width:120px;display:block;margin:6px 0">':'')+(S.bank?'<div class="mu">'+esc(S.bank)+'</div>':'')+(p?'<a href="https://wa.me/'+p+'?text='+encodeURIComponent(t)+'" target="_blank" rel="noopener">Hantar teks resit</a>':'')+'<br><button style="margin-top:8px" onclick="rcPdf(1)">📤 Hantar PDF</button> <button class="g" style="margin-top:8px" onclick="rcPdf()">⬇ Muat turun</button><div id="rcm" class="mu"></div></div>';
+}
+function imp(){
+  try{var o=JSON.parse($('bk').value);if(o&&o.students){S=o;S.sched=S.sched||[];S.tests=S.tests||[];S.pd=S.pd||{};S.biz=S.biz||'';save();bk='';render()}}catch(e){alert('Data tak sah')}
+}
+function render(){
+  var m={stu:['👩‍🎓 Pelajar',vStu],att:['✅ Hadir',vAtt],fee:['💰 Yuran',vFee],sch:['🗓️ Jadual',vSch],tst:['📝 Ujian',vTest],sum:['📊 Ringkasan',vSum]};
+  m=NAV;if(!m[tab])tab='home';$('app').innerHTML=m[tab][1]();
+  $('nav').innerHTML=Object.keys(m).map(function(k){return '<button class="'+(k===tab?'on':'')+'" onclick="tab=\''+k+'\';del=null;render()">'+m[k][0].replace(' ','<br>')+'</button>'}).join('');
+}
+render();
+</script>
+</body>
+</html>
